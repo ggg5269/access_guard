@@ -10,3 +10,4 @@ wheels/
 .venv
 .github
 uv.lock
+pypi.md

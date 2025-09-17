@@ -1,6 +1,6 @@
 """
-Windows/cmd 友善：自動同步升級 pyproject.toml 與 src/access_guard/__init__.py 版號。
-用法：python bump_version.py 0.1.4
+Windows/cmd friendly: Auto-sync bump versions in pyproject.toml and src/access_guard/__init__.py.
+Usage: python bump_version.py 0.1.4
 """
 import sys
 import re
@@ -20,7 +20,7 @@ def bump_init(path, new_version):
 
 def main():
     if len(sys.argv) != 2:
-        print("用法: python bump_version.py <新版本號>")
+        print("Usage: python bump_version.py <NEW_VERSION>")
         sys.exit(1)
     new_version = sys.argv[1]
     bump_pyproject("pyproject.toml", new_version)

@@ -1,11 +1,11 @@
 """Runtime final guard decorators & metaclass."""
 
-# --- 公用工具 ---
+# --- Utilities ---
 
 FINAL_ATTR = "__is_final__"
 
 def _mark_func_final(func):
-    # 在真正的 function 物件上標記
+    # Mark on the real function object
     setattr(func, FINAL_ATTR, True)
 
 def _is_func_final(func):
@@ -13,8 +13,8 @@ def _is_func_final(func):
 
 def final(obj):
     """
-    將方法／屬性標註為 final。
-    支援：普通函式、@staticmethod、@classmethod、@property（含 fget/fset/fdel）。
+    Mark a method/property as final.
+    Supports: regular function, @staticmethod, @classmethod, and @property (including fget/fset/fdel).
     """
     if isinstance(obj, staticmethod):
         _mark_func_final(obj.__func__)
@@ -23,7 +23,7 @@ def final(obj):
         _mark_func_final(obj.__func__)
         return classmethod(obj.__func__)
     if isinstance(obj, property):
-        # 任何一個 accessor 被標 final，都視為整個 property final
+        # If any accessor is marked final, the whole property is considered final
         if obj.fget:
             _mark_func_final(obj.fget)
         if obj.fset:
@@ -31,24 +31,24 @@ def final(obj):
         if obj.fdel:
             _mark_func_final(obj.fdel)
         return obj
-    # 一般函式
+    # Regular function
     _mark_func_final(obj)
     return obj
 
 
 def final_class(_cls=None, *, exclude=None, include_magic=False):
-    """將類別中方法 / property 批次標記為 final。
+    """Bulk mark methods/properties in a class as final.
 
-    可用法：
+    Usage:
         @final_class
         class A: ...
 
         @final_class(exclude={"debug"}, include_magic=True)
         class B: ...
 
-    參數:
-        exclude: 可選 set/list/tuple，列出不標記 final 的成員名稱。
-        include_magic: 若為 True，會連符合 __xxx__ 形式的魔術方法一併標記。
+    Args:
+        exclude: Optional set/list/tuple of member names NOT to mark final.
+        include_magic: When True, also mark magic methods of the form __xxx__.
     """
     if exclude is None:
         exclude_set = set()
@@ -64,9 +64,9 @@ def final_class(_cls=None, *, exclude=None, include_magic=False):
             if is_magic and not include_magic:
                 continue
             if is_magic and include_magic and name in {"__dict__", "__weakref__"}:
-                # 這些內建結構不做處理
+                # Skip builtin structures
                 continue
-            # 標記
+            # Mark
             if isinstance(value, (staticmethod, classmethod, property)):
                 marked = final(value)
                 setattr(cls, name, marked)
@@ -74,7 +74,7 @@ def final_class(_cls=None, *, exclude=None, include_magic=False):
                 final(value)
             if is_magic and include_magic and _is_attr_final(getattr(cls, name)):
                 magic_collected.add(name)
-        # 更新 __final_names__ 若已存在
+        # Update __final_names__ if present
         if hasattr(cls, "__final_names__"):
             current = set(getattr(cls, "__final_names__"))
             newly = {
@@ -89,13 +89,13 @@ def final_class(_cls=None, *, exclude=None, include_magic=False):
             setattr(cls, "__final_magic_names__", frozenset(existing_magic | magic_collected))
         return cls
 
-    if _cls is not None and callable(_cls):  # 無參數使用情況
+    if _cls is not None and callable(_cls):  # usage without parameters
         return _apply(_cls)
     return _apply
 
 
 def _is_attr_final(value):
-    """判斷某個 class 層級的成員是否被標為 final。"""
+    """Check whether a class-level member is marked as final."""
     if isinstance(value, staticmethod) or isinstance(value, classmethod):
         return _is_func_final(value.__func__)
     if isinstance(value, property):
@@ -104,29 +104,29 @@ def _is_attr_final(value):
             for f in (value.fget, value.fset, value.fdel)
             if f is not None
         )
-    # 其它可呼叫或可標記的描述元
+    # Other callables or markable descriptors
     return _is_func_final(value)
 
 
 def _collect_final_names_from_bases(bases):
-    """蒐集所有基類中被標為 final 的成員名稱。
+    """Collect names marked final across all base classes.
 
-    - 一般方法/屬性：排除魔術 (除非該基類有 __final_magic_names__ 額外紀錄)。
-    - 魔術方法：僅當祖先類別透過 final_class(include_magic=True) 記錄於 __final_magic_names__ 時才納入。
+    - Regular methods/properties: exclude magic (unless a base stores them in __final_magic_names__).
+    - Magic methods: included only when ancestors recorded them via final_class(include_magic=True).
     """
     finals = set()
     magic_finals = set()
     for base in bases:
-        # 僅看該層 __dict__，避免解析 descriptor 後的綁定結果
+    # Only inspect that layer's __dict__ to avoid bound descriptor results
         for name, value in vars(base).items():
             if name.startswith("__") and name.endswith("__"):
-                # 僅在祖先有顯式記錄時才視為最終
+        # Treat as final only if explicitly recorded by ancestor
                 if name in getattr(base, "__final_magic_names__", frozenset()) and _is_attr_final(value):
                     magic_finals.add(name)
                 continue
             if _is_attr_final(value):
                 finals.add(name)
-        # 合併祖先已紀錄的魔術 final 名稱
+    # Merge ancestor-recorded magic finals
         magic_finals.update(getattr(base, "__final_magic_names__", frozenset()))
     return finals | magic_finals
 
@@ -135,29 +135,30 @@ def _collect_final_names_from_bases(bases):
 
 class Access(type):
     """
-    讓以 @final 標註的成員在子類中不可被覆寫，並阻擋建立後的動態覆蓋。
+    Prevent members marked with @final from being overridden in subclasses,
+    and block dynamic overrides after the class is created.
     """
     def __new__(mcs, name, bases, class_dict):
-        # 1) 找出所有繼承鏈上的 final 名稱
+        # 1) Collect final names across the inheritance chain
         inherited_finals = _collect_final_names_from_bases(bases)
 
-        # 2) 檢查本類是否嘗試覆寫這些名稱
+        # 2) Check if this class attempts to override any of them
         violated = inherited_finals.intersection(class_dict.keys())
         if violated:
             raise RuntimeError(
-                f"下列成員已在父類標為 final，不可覆寫：{sorted(violated)}"
+                f"The following members are final in base classes and cannot be overridden: {sorted(violated)}"
             )
 
-        # 3) 建立類別
+        # 3) Create the class
         cls = super().__new__(mcs, name, bases, class_dict)
 
-        # 4) 保存「此類禁止覆寫的名稱集合」（包含祖先類）
-        #    若本類也標了新的 final，下一代子類也會繼承。
+        # 4) Persist the set of non-overridable names (including ancestors)
+        #    New finals marked here are inherited by subclasses as well.
         own_finals = {
             n for n, v in vars(cls).items()
             if not (n.startswith("__") and n.endswith("__")) and _is_attr_final(v)
         }
-        # 合併所有來源
+        # Merge all sources
         all_finals = set(inherited_finals) | own_finals
         setattr(cls, "__final_names__", frozenset(all_finals))
 
@@ -165,9 +166,9 @@ class Access(type):
 
     def __setattr__(cls, name, value):
         """
-        阻擋類別被建立後，再把 final 名稱重新賦值（猴補／動態覆寫）。
+        Block reassigning a final name after the class is created (monkey patch / dynamic override).
         """
         final_names = getattr(cls, "__final_names__", frozenset())
         if name in final_names:
-            raise RuntimeError(f"成員 '{name}' 為 final，禁止重新賦值/覆寫。")
+            raise RuntimeError(f"Member '{name}' is final; reassignment/override is forbidden.")
         return super().__setattr__(name, value)

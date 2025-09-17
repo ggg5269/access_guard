@@ -10,7 +10,7 @@ def test_final_class_exclude_allows_override():
         def close(self):
             return 2
 
-    # close 應為 final, open 不應 final
+    # close should be final; open should NOT be final
     class Child(Base):
         def open(self):  # allowed override
             return 10

@@ -8,6 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
-.github
+.github/chatmodes
 uv.lock
 pypi.md
